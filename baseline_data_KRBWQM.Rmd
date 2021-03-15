@@ -1,0 +1,369 @@
+---
+title: "BOR_WaterSMART"
+output:
+  html_document: 
+    fig_width: 10
+    fig_height: 6
+    fig_caption: yes
+    code_folding: hide
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+editor_options: 
+  chunk_output_type: inline
+---
+
+Document last updated `r Sys.time()` by Benjamin Meyer ([ben\@kenaiwatershed.org](mailto:ben@kenaiwatershed.org){.email})
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+
+# clear environment
+rm(list=ls())
+
+# load packages
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(readxl)
+library(writexl)
+library(hms)
+library(plotly)
+library(DT)
+library(xlsx)
+library(leaflet)
+library(DT)
+library(ggpubr)
+library(plotrix)
+library(remotes)
+install_github("USGS-R/EGRET")
+
+select <- dplyr::select
+
+# set plotting themes
+
+## geom_col plots theme
+col_theme <- theme(axis.title = element_text(size = 14, face = "bold"),
+                   strip.text = element_text(size = 14, face = "bold"),
+                   legend.title = element_text(size = 14, face = "bold"),
+                   legend.text = element_text(size = 14),
+                   axis.text = element_text(size = 14))
+
+## geom_points plots theme
+points_theme <- theme(axis.title = element_text(size = 14, face = "bold"),
+                   strip.text = element_text(size = 14, face = "bold"),
+                   legend.title = element_text(size = 14, face = "bold"),
+                   legend.text = element_text(size = 14),
+                   axis.text = element_text(size = 14),
+                   title = element_text(size = 18))
+
+# function to exclude multiple items per column
+'%ni%' <- Negate('%in%')
+```
+
+<br>
+
+This draft document contains preliminary data explorations of all data acquired from the US EPA water quality data portal for the Kenai River Watershed.
+
+Data is sourced from the following queries at waterquality.us on Feb 24, 2021:
+
+CSV download for sample data: <https://www.waterqualitydata.us/portal/#bBox=-151.322501%2C60.274310%2C-149.216144%2C60.738915&mimeType=csv&dataProfile=narrowResult>
+
+CSV download for site data: <https://www.waterqualitydata.us/portal/#countrycode=US&statecode=US%3A02&countycode=US%3A02%3A122&bBox=-151.322501%2C60.274310%2C-149.216144%2C60.738915&mimeType=csv>
+
+Excluded these CSV files from the github repository becuase they are too large. Download and save locally instead. Or, in the future, use EGRET package (<http://usgs-r.github.io/EGRET/articles/EGRET.htmlmaps>) for automated database query.
+
+Using these same queries in the future should download the mosty current csv files.
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+### Import data
+
+Import data from local csv files
+
+```{r}
+# import data from EPA repo
+
+# source data from most recent download
+## specify download date
+download_date <- "20210224"
+
+
+# import sample data
+dat <- read_csv(paste0("data/download_",download_date,"/narrowresult.csv"))
+
+# import site data
+site_dat <- read_csv(paste0("data/download_",download_date,"/station.csv"))
+
+# join site and sample data
+dat <- left_join(dat,site_dat) %>%
+  # remove empty columns
+  select_if(~!(all(is.na(.))))
+
+  
+```
+
+
+Ensure our organization has a consistent name
+```{r}
+# filter if OrganizationFormalName has the term "Kenai"
+dat %>%
+  select(OrganizationIdentifier,OrganizationFormalName) %>%
+  filter(grepl("Kenai",OrganizationFormalName)) %>%
+  distinct()
+```
+
+
+
+```{r}
+
+# import compiled data 2014 - 2020 form local kwf server
+# note: we will not need this step once everything's uploaded to WQX
+kwf_dat <- read_excel("data/Compiled_KRBWQM_data_2014_2020.xlsx", sheet = "Master") %>%
+    select(-Year,-Season,-ChannelType,-TestType,-Code,-Duplicate,-Lab) %>%
+  
+  # create and rename columns to match EPA database format
+  mutate("OrganizationFormalName" = "Kenai Watershed Forum(Volunteer)*",
+         "MonitoringLocationTypeName" = "River/Stream") %>%
+  rename("ActivityStartDate"= "Date",
+         "MonitoringLocationName" = "Site",
+         "CharacteristicName" = "Parameter",
+         "ResultMeasureValue" = "Result",
+         "ResultMeasure/MeasureUnitCode" = "Units") %>%
+  # match column formats to epa database
+  transform(ResultMeasureValue = as.double(ResultMeasureValue))
+
+# join site coordinates to 2014-2020 data
+sites <- read.csv("data/sampling_sites/site_names_matching.csv")
+kwf_dat <- left_join(kwf_dat,sites)
+
+
+# join kwf and epa data
+dat <- bind_rows(dat,kwf_dat)
+
+```
+
+
+<br>
+
+What kind of sites are present in our data set?
+
+```{r}
+unique(dat$MonitoringLocationTypeName)
+```
+
+<br>
+
+Retain surface water sites only. Exclude well sampling sites.
+
+```{r}
+# create and apply filter
+surface <- c("River/Stream","Lake","River/Stream Perennial","BEACH Program Site-Ocean","BEACH Program Site-River/Stream","Lake, Reservoir, Impoundment","Stream","Spring")
+
+dat <- dat %>%
+  filter(MonitoringLocationTypeName %in% surface)
+```
+
+<br>
+
+Retain a subset of useful columns
+
+```{r}
+ # retain select subset of potentially useful columns
+dat <- dat %>%
+  select("OrganizationFormalName",
+"ActivityStartDate" ,
+"ActivityStartTime/Time",
+"ActivityStartTime/TimeZoneCode" ,               
+"MonitoringLocationIdentifier"       ,           
+"CharacteristicName"                  ,          
+"ResultMeasureValue"       ,                     
+"ResultMeasure/MeasureUnitCode"      ,           
+"ResultStatusIdentifier"         ,               
+"ResultValueTypeName"         ,                  
+"ResultAnalyticalMethod/MethodIdentifier"       ,
+"ResultAnalyticalMethod/MethodIdentifierContext",
+"ResultAnalyticalMethod/MethodName"    ,         
+"MonitoringLocationName"          ,              
+ "MonitoringLocationTypeName"      ,              
+ "HUCEightDigitCode"         ,                    
+ "DrainageAreaMeasure/MeasureValue"        ,      
+ "DrainageAreaMeasure/MeasureUnitCode"      ,     
+ "LatitudeMeasure"          ,                     
+ "LongitudeMeasure"       ,                       
+ "SourceMapScaleNumeric"    ,                     
+ "HorizontalAccuracyMeasure/MeasureValue"        ,
+ "HorizontalAccuracyMeasure/MeasureUnitCode"     ,
+ "HorizontalCollectionMethodName"          ,      
+ "HorizontalCoordinateReferenceSystemDatumName"  ,
+ "VerticalMeasure/MeasureValue"       ,           
+ "VerticalMeasure/MeasureUnitCode"     ,          
+ "VerticalAccuracyMeasure/MeasureValue"       ,   
+ "VerticalAccuracyMeasure/MeasureUnitCode"      , 
+ "VerticalCollectionMethodName"         ,         
+ "VerticalCoordinateReferenceSystemDatumName")   
+
+
+# remove extraneous text from "Kenai Watershed Forum(Volunteer)*"
+dat <- dat %>%
+  mutate(OrganizationFormalName = gsub("\\s*\\([^\\)]+\\)","",as.character(dat$OrganizationFormalName))) %>%
+  mutate(OrganizationFormalName = str_remove(OrganizationFormalName,"\\*"))
+
+
+# maybe check the EGReT lit for how to do this?  maybe theres a pkg for
+# waterquality.us imports directly rather than from a csv.
+
+# adapt vignette for multiple sites:
+# https://github.com/USGS-R/EGRET
+
+# potentially also useful: https://waterdata.usgs.gov/nwis/inventory?search_criteria=lat_long_bounding_box&submitted_form=introduction
+
+# additional dataframe prep
+dat <- dat %>%
+  transform(ActivityStartDate = date(ActivityStartDate)) %>%
+  
+  # remove missing observations
+  filter(!is.na(ResultMeasureValue))
+
+```
+
+<br>
+
+### Exploratory Data Analysis for KRBWQM
+
+How many years of data do we have?
+
+```{r}
+dat %>%
+  filter(OrganizationFormalName == "Kenai Watershed Forum") %>%
+  summarise(min_date = min(ActivityStartDate),
+            max_date = max(ActivityStartDate))
+
+```
+
+<br>
+
+How many data points total from water quality grab samples?
+```{r}
+exclude_parameters <- c("Temperature, air", "Temperature, water")
+
+(z <- dat %>%
+  filter(OrganizationFormalName == "Kenai Watershed Forum",
+         CharacteristicName %ni% exclude_parameters) %>%
+  distinct() %>%
+  count())
+
+```
+
+
+<br>
+
+How many different kinds of substances have we measured ?
+
+```{r}
+dat %>%
+  filter(OrganizationFormalName == "Kenai Watershed Forum") %>%
+  distinct(CharacteristicName) %>%
+  count()
+
+
+# note: some substances are labeled "(surr)" for surrogate. Need to research what this means; subtract form total count for now
+```
+
+<br>
+
+What days of the year does sampling occur on?
+```{r}
+dat %>%
+  filter(OrganizationFormalName == "Kenai Watershed Forum",
+         CharacteristicName %ni% exclude_parameters) %>%
+  mutate(day = yday(ActivityStartDate)) %>%
+  select(day) %>%
+  distinct() %>%
+  arrange()
+
+
+```
+<br>
+
+How many different sites?
+
+```{r}
+# create summary table
+tbl <- dat %>%
+  filter(OrganizationFormalName == "Kenai Watershed Forum",
+         CharacteristicName %ni% exclude_parameters) %>%
+  group_by(MonitoringLocationName,LatitudeMeasure,LongitudeMeasure) %>%
+  summarise(min_date = min(ActivityStartDate),
+            max_date = max(ActivityStartDate)) %>%
+  rename("latitude" = "LatitudeMeasure",
+         "longitude" = "LongitudeMeasure")
+
+# export csv
+write.csv(tbl,"data/sampling_sites/2000_2014_sitenames.csv", row.names = F)
+
+```
+
+<br> 
+
+Map of sites
+
+Note: attempting to create a leaflet map here repeatedly causes computer to freeze.  Too high of memory usage?  Only 57 sites.  Reason for error unclear.
+
+Export CSV file to ArcGIS Online map instead
+
+```{r}
+# create map
+tbl %>%
+  leaflet() %>%
+  # choose base map
+  addTiles() %>%  
+  # set map center
+  setView(-151.214545, 60.538691, zoom = 7) %>%
+  # add map title
+  #addControl(title, position = "topleft", className="map-title") %>%
+ 
+   addCircleMarkers(~LongitudeMeasure, ~LatitudeMeasure, 
+                    radius = 9,
+             popup = paste("Site Name" = dat$MonitoringLocationName,"<br>",
+                           "Sample Date" = dat$ActivityStartDate, "<br>",
+                           "Sample Value" = dat$ResultMeasureValue, "<br>")) %>%
+  
+  # add site labels
+  addLabelOnlyMarkers(~LongitudeMeasure, ~LatitudeMeasure, label =  dat$MonitoringLocationName, 
+                      labelOptions = labelOptions(noHide = T, 
+                                                  direction = 'right', 
+                                                  textOnly = T,
+                                                  textsize = "12px",
+                                                  style = list("color" = "white", 
+                                                               "font-weight" = "bold",
+                                                               "font-size" = "14px")))
+```
+
+
+
+### Arsenic, Cadmium, Chromium, and Lead data
+
+Very quick EDA:
+
+-   What is extent of data for arsenic, cadmium, chromium, lead in the Kenai River Watershed available from the waterqualitydata.us data repository?
+
+```{r}
+metals <- c("Arsenic","Cadmium", "Chromium", "Lead")
+
+tbl <- dat %>%
+  filter(CharacteristicName %in% metals) %>%
+  transform(ActivityStartDate = date(ActivityStartDate)) %>%
+  group_by(OrganizationFormalName,LatitudeMeasure,LongitudeMeasure,MonitoringLocationName) %>%
+  summarise(min_date = min(ActivityStartDate),
+            max_date = max(ActivityStartDate))
+
+datatable(tbl)
+
+```

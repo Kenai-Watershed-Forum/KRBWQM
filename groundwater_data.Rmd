@@ -1,0 +1,167 @@
+
+---
+title: "kenai_groundwater"
+output:
+  html_document: 
+    fig_width: 10
+    fig_height: 6
+    fig_caption: yes
+    code_folding: hide
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+editor_options: 
+  chunk_output_type: inline
+---
+
+Document last updated `r Sys.time()` by Benjamin Meyer ([ben\@kenaiwatershed.org](mailto:ben@kenaiwatershed.org){.email})
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+
+# clear environment
+rm(list=ls())
+
+# load packages
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(readxl)
+library(writexl)
+library(hms)
+library(plotly)
+library(DT)
+library(xlsx)
+library(leaflet)
+library(DT)
+library(ggpubr)
+library(plotrix)
+library(remotes)
+install_github("USGS-R/EGRET")
+
+select <- dplyr::select
+
+# set plotting themes
+
+## geom_col plots theme
+col_theme <- theme(axis.title = element_text(size = 14, face = "bold"),
+                   strip.text = element_text(size = 14, face = "bold"),
+                   legend.title = element_text(size = 14, face = "bold"),
+                   legend.text = element_text(size = 14),
+                   axis.text = element_text(size = 14))
+
+## geom_points plots theme
+points_theme <- theme(axis.title = element_text(size = 14, face = "bold"),
+                   strip.text = element_text(size = 14, face = "bold"),
+                   legend.title = element_text(size = 14, face = "bold"),
+                   legend.text = element_text(size = 14),
+                   axis.text = element_text(size = 14),
+                   title = element_text(size = 18))
+
+# function to exclude multiple items per column
+'%ni%' <- Negate('%in%')
+```
+
+
+Question: what kind of groundwater data exists in the EQA WQX within the Kenai River Watershed?
+
+
+### Import data
+
+Import data from local csv files
+
+```{r}
+# import data from EPA repo
+
+# source data from most recent download
+## specify download date
+download_date <- "20210224"
+
+
+# import sample data
+dat <- read_csv(paste0("data/download_",download_date,"/narrowresult.csv"))
+
+# import site data
+site_dat <- read_csv(paste0("data/download_",download_date,"/station.csv"))
+
+# join site and sample data
+dat <- left_join(dat,site_dat) %>%
+  # remove empty columns
+  select_if(~!(all(is.na(.))))
+  
+```
+
+<br>
+
+What kind of sites are present in our data set?
+
+```{r}
+unique(dat$MonitoringLocationTypeName)
+```
+
+<br>
+
+Retain ground water sites only. 
+
+```{r}
+# create and apply filter
+gw <- "Well"
+
+dat <- dat %>%
+  filter(MonitoringLocationTypeName %in% gw)
+
+
+```
+
+<br>
+
+### Exploratory Data Analysis for Groundwater
+
+How many years of data do we have?
+
+```{r}
+dat %>%
+  summarise(min_date = min(ActivityStartDate),
+            max_date = max(ActivityStartDate))
+
+```
+
+
+
+<br>
+
+How many different kinds of substances have been measured ?
+
+```{r}
+dat %>%
+  distinct(CharacteristicName) %>%
+  count()
+
+dat %>%
+  distinct(CharacteristicName)
+
+```
+
+<br>
+
+
+
+How many different sites?
+
+```{r}
+# create summary table
+gw_tbl <- dat %>%
+  group_by(OrganizationFormalName,MonitoringLocationName,LatitudeMeasure,LongitudeMeasure) %>%
+  summarise(min_date = min(ActivityStartDate),
+            max_date = max(ActivityStartDate),
+            parameters_measured = n()) %>%
+  rename("latitude" = "LatitudeMeasure",
+         "longitude" = "LongitudeMeasure") %>%
+  mutate(data_type = "Groundwater Data", .before = "OrganizationFormalName")
+
+# export csv
+write.csv(gw_tbl,"data/sampling_sites/gw_sample_sites.csv", row.names = F)
+
+```

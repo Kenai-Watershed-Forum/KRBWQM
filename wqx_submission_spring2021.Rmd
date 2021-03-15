@@ -1,0 +1,190 @@
+---
+title: "wqx_submisison_spring2021"
+output:
+  html_document: 
+    fig_width: 10
+    fig_height: 6
+    fig_caption: yes
+    code_folding: hide
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+editor_options: 
+  chunk_output_type: inline
+---
+
+Document last updated `r Sys.time()` by Benjamin Meyer ([ben\@kenaiwatershed.org](mailto:ben@kenaiwatershed.org){.email})
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+
+# clear environment
+rm(list=ls())
+
+# load packages
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(readxl)
+library(writexl)
+library(hms)
+library(plotly)
+library(DT)
+library(xlsx)
+library(leaflet)
+library(DT)
+library(ggpubr)
+library(plotrix)
+library(remotes)
+install_github("USGS-R/EGRET")
+
+select <- dplyr::select
+
+# set plotting themes
+
+## geom_col plots theme
+col_theme <- theme(axis.title = element_text(size = 14, face = "bold"),
+                   strip.text = element_text(size = 14, face = "bold"),
+                   legend.title = element_text(size = 14, face = "bold"),
+                   legend.text = element_text(size = 14),
+                   axis.text = element_text(size = 14))
+
+## geom_points plots theme
+points_theme <- theme(axis.title = element_text(size = 14, face = "bold"),
+                   strip.text = element_text(size = 14, face = "bold"),
+                   legend.title = element_text(size = 14, face = "bold"),
+                   legend.text = element_text(size = 14),
+                   axis.text = element_text(size = 14),
+                   title = element_text(size = 18))
+
+# function to exclude multiple items per column
+'%ni%' <- Negate('%in%')
+```
+
+<br>
+
+### Introduction
+
+This document prepares data for a submission to the EPA water quality exchange (EPA WQX).
+
+Submission format is based on the WQX Web Template 3.0 file acquired on March 8, 2021.
+
+Data in this submission includes all available data from the Kenai River Baseline Water Quality Monitoring project not yet submitted to the EPA data repository; 2014 - present.
+
+This script is custom for this specific submission. Future submissions will be of a largely fixed and specific workflow based on lab report results format from SGS and other reporting labs.
+
+```{r}
+# see this article for a starting point https://towardsdatascience.com/this-is-what-the-ultimate-r-data-analysis-workflow-looks-like-8e7139ee708d
+```
+
+<br>
+
+***
+
+### WQX Web Template
+
+The WQX Web Template is a series of Excel files available at at <https://www.epa.gov/waterdata/water-quality-exchange-web-template-files>.
+
+The template contains the following tabs:
+
+-   Instructions
+
+-   Definitions
+
+-   Projects
+
+-   Monitoring Locations
+
+-   Results
+
+-   Inconsistent data
+
+-   Activity ID Formulas(s)
+
+We will be editing information in the tabs titled, "Projects," "Monitoring Locations," and "Results."  We will create each of these as an individual .csv file and upload them separately.
+
+<br>
+
+### Import from local sever
+```{r}
+# import compiled data 2014 - 2020 form local kwf server
+
+dat <- read_excel("data/Compiled_KRBWQM_data_2014_2020.xlsx", sheet = "Master") %>%
+    select(-Year,-Season,-ChannelType,-TestType,-Code,-Duplicate,-Lab) %>%
+  
+  # create and rename columns to match EPA database format
+  mutate("OrganizationFormalName" = "Kenai Watershed Forum(Volunteer)*",
+         "MonitoringLocationTypeName" = "River/Stream") %>%
+  rename("ActivityStartDate"= "Date",
+         "MonitoringLocationName" = "Site",
+         "CharacteristicName" = "Parameter",
+         "ResultMeasureValue" = "Result",
+         "ResultMeasure/MeasureUnitCode" = "Units") %>%
+  # match column formats to epa database
+  transform(ResultMeasureValue = as.double(ResultMeasureValue))
+
+# join site coordinates to 2014-2020 data
+sites <- read.csv("data/sampling_sites/site_names_matching.csv") %>%
+  rename("MonitoringLocationName" = "name_2014_2020")
+dat <- left_join(dat,sites)
+```
+
+Questions to address:
+
+--  Decide what to do with ND values (currently auto-converted to NA; see what WQX does)
+--  Decide what to name sites (use consistent scheme as with existing database)
+
+
+#### Projects
+
+```{r}
+# need to get info from a call to cdx?
+
+```
+
+<br>
+
+#### Monitoring Locations
+
+```{r}
+# what are the unique site names and coords, and what is their monitoring duration?
+tbl <- dat %>%
+  group_by(MonitoringLocationName,LatitudeMeasure,LongitudeMeasure) %>%
+  summarise(min_date = min(ActivityStartDate),
+            max_date = max(ActivityStartDate)) %>%
+  rename("latitude" = "LatitudeMeasure",
+         "longitude" = "LongitudeMeasure")
+
+# export these site names and coords
+write.csv(tbl,"data/sampling_sites/2014_2020_sitenames.csv",row.names = F)
+```
+
+<br>
+
+Site names and coordinates for 2000 - 2014 (from the EPA database) and 2014 - 2020 (from local server) are visualized in an ArcGIS Online Map here: https://arcg.is/1yD0DG
+
+<br>
+
+```{r}
+
+# site names used in the 2014 - 2020 manual data entry are different from the site names preexisting in the EPA database.
+
+# solution: 
+
+# the file "data/sampling_sites/site_names_matching.csv" was manually created, usingt he ArcGIS Online map, to rectify site name discrepancies and assign coordinates.  Coordinates are taken from the 2014 Kenai Wateshed Forum Report at https://dec.alaska.gov/media/16756/kenai-river-baseline-monitoring-report-final-zncuappendix.pdf
+
+# see map at https://arcg.is/1jLiaz0
+```
+
+<br>
+
+#### Results
+
+```{r}
+
+```
+
+
+
