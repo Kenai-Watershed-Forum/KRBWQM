@@ -93,7 +93,7 @@ Import data from local csv files
 # import data from EPA repo
 
 # import sample data
-dat <- read_csv(paste0("data/download_",download_date,"/narrowresult.csv"))
+dat <- read_csv(paste0("data/WQX_downloads/download_",download_date,"/narrowresult.csv"))
 
 # import site data
 site_dat <- read_csv(paste0("data/download_",download_date,"/station.csv"))
