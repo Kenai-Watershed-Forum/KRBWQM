@@ -83,17 +83,14 @@ Using these same queries in the future should download the mosty current csv fil
 
 <br>
 
+
+
 ### Import data
 
 Import data from local csv files
 
 ```{r}
 # import data from EPA repo
-
-# source data from most recent download
-## specify download date
-download_date <- "20210224"
-
 
 # import sample data
 dat <- read_csv(paste0("data/download_",download_date,"/narrowresult.csv"))
@@ -367,3 +364,7 @@ tbl <- dat %>%
 datatable(tbl)
 
 ```
+
+<br>
+
+
